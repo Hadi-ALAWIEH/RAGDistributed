@@ -1,0 +1,12 @@
+flowchart LR
+  A[Seed URLs (sites.txt)] --> B[Queue (RabbitMQ)]
+  B --> C[Ray Workers]
+  C --> D[Scrapy Crawler]
+  D --> E[Raw HTML in MongoDB]
+  E --> F[Cleaner (BS4/lxml)]
+  F --> G[Cleaned text JSON in MongoDB]
+  G --> H[Embed + FAISS Index]
+  H --> I[RAG Retriever]
+  I --> J[LLM (LangChain/OpenAI/etc.)]
+  J --> K[FastAPI: /search, /rag, /raw]
+  K --> L[Optional Web UI]

@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+scrapy
+beautifulsoup4
+lxml
+pymongo
+pika
+ray
+faiss-cpu
+sentence-transformers
+langchain
+numpy
+tqdm
