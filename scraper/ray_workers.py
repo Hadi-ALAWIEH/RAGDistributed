@@ -1,12 +1,23 @@
 import argparse, json, os, pika, ray, subprocess, tempfile, time
 from pymongo import MongoClient
 
+
 @ray.remote
 def run_spider(url: str):
     # Run Scrapy spider for a single URL and capture output
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jl") as tmp:
         out = tmp.name
-    cmd = ["scrapy", "runspider", "scraper/spider.py", "-a", f"start_url={url}", "-o", out, "-s", "LOG_LEVEL=ERROR"]
+    cmd = [
+        "scrapy",
+        "runspider",
+        "scraper/spider.py",
+        "-a",
+        f"start_url={url}",
+        "-o",
+        out,
+        "-s",
+        "LOG_LEVEL=ERROR",
+    ]
     subprocess.run(cmd, check=True)
     # Read results
     items = []
@@ -16,11 +27,13 @@ def run_spider(url: str):
     os.remove(out)
     return items
 
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--queue-url", default="amqp://guest:guest@localhost//")
     ap.add_argument("--queue-name", default="urls")
     ap.add_argument("--sites-file", default="infra/sites.txt")
+    ap.add_argument("--clean-queue-name", default="clean_tasks")
     args = ap.parse_args()
 
     # Seed queue with sites
@@ -28,6 +41,7 @@ def main():
     conn = pika.BlockingConnection(params)
     ch = conn.channel()
     ch.queue_declare(queue=args.queue_name, durable=True)
+    ch.queue_declare(queue=args.clean_queue_name, durable=True)
 
     with open(args.sites_file, "r") as f:
         for line in f:
@@ -47,8 +61,14 @@ def main():
         fut = run_spider.remote(url)
         items = ray.get(fut)
         if items:
-            raw_col.insert_many(items)
+            result = raw_col.insert_many(items)
             print(f"[worker] Stored {len(items)} pages")
+            # Trigger cleaner for each inserted document
+            for doc_id in result.inserted_ids:
+                chx.basic_publish(
+                    exchange="", routing_key=args.clean_queue_name, body=str(doc_id)
+                )
+                print(f"[worker] Sent cleaning task for doc_id: {doc_id}")
         chx.basic_ack(delivery_tag=method.delivery_tag)
 
     ch.basic_qos(prefetch_count=1)
@@ -58,6 +78,7 @@ def main():
         ch.start_consuming()
     except KeyboardInterrupt:
         ch.stop_consuming()
+
 
 if __name__ == "__main__":
     main()

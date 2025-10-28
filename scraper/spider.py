@@ -1,10 +1,12 @@
 import scrapy
 
+
 class GenericSpider(scrapy.Spider):
     name = "generic"
     custom_settings = {
         "DOWNLOAD_DELAY": 0.2,
-        "ROBOTSTXT_OBEY": True
+        "ROBOTSTXT_OBEY": False,
+        "DEPTH_LIMIT": 2,
     }
 
     def __init__(self, start_url=None, *args, **kwargs):
@@ -14,10 +16,17 @@ class GenericSpider(scrapy.Spider):
         self.start_urls = [start_url]
 
     def parse(self, response):
-        yield {
-            "url": response.url,
-            "html": response.text
-        }
-        # Follow a few links to show breadth (bounded)
-        for href in response.css("a::attr(href)").getall()[:10]:
-            yield response.follow(href, self.parse)
+        content_type = response.headers.get("Content-Type", b"").decode().lower()
+
+        if "text" in content_type or "html" in content_type:
+            yield {"url": response.url, "html": response.text}
+        else:
+            self.logger.debug(
+                f"Skipping non-text content at {response.url} ({content_type})"
+            )
+            return  # stop processing binary files
+
+        # Follow valid links
+        for href in response.css("a::attr(href)").getall():
+            if href and href.startswith(("http", "/")):
+                yield response.follow(href, self.parse)
